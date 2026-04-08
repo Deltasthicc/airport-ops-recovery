@@ -49,7 +49,22 @@ class AirportRecoveryEnvironment(Environment):
     def __init__(self):
         self._state = AirportState()
         self._flights={}; self._gates={}; self._passengers={}; self._crew={}
-        self._issues={}; self._resolved={}
+        self._issues = {
+            "gate_conflicts": [],
+            "passenger_rebookings": [],
+            "crew_swaps": [],
+            "cancellations_needed": [],
+            "held_connections": [],
+            "broadcasts_needed": [],
+        }
+        self._resolved = {
+            "gate_conflicts": set(),
+            "passenger_rebookings": set(),
+            "crew_swaps": set(),
+            "cancellations": set(),
+            "held_connections": set(),
+            "broadcasts": set(),
+        }
         self._score=0; self._max_score=1; self._max_steps=12
         self._clock=0; self._sh=14; self._sm=0
         self._desc=""; self._done=False; self._used_crew=set()
@@ -97,7 +112,13 @@ class AirportRecoveryEnvironment(Environment):
         t=self._sh*60+self._sm+self._clock; return f"{(t//60)%24:02d}:{t%60:02d}"
 
     def step(self, action: AirportAction, timeout_s=None, **kwargs):
-        if self._done: return self._obs("Episode ended.",force_done=True)
+        if self._state.episode_id is None and self._state.total_issues == 0:
+            return self._obs(
+                "No active episode. Call reset() first. For multi-step interaction, use the OpenEnv client/WebSocket session rather than raw HTTP /step.",
+                reward=-0.02,
+            )
+        if self._done:
+            return self._obs("Episode ended.", force_done=True)
         self._state.step_count += 1; self._clock += self.MINUTES_PER_STEP
         self._tick_cooldowns(); self._tick_tarmac()
         evts = self._check_events()
