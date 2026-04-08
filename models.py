@@ -24,7 +24,8 @@ class AirportObservation(Observation):
     resolved_issues_count: int = 0
     total_issues_count: int = 0
     compensation_cost_usd: float = 0.0
-    tarmac_violations: int = 0
+    tarmac_alerts: List[str] = []
+    hint: str = ""
     message: str = ""
     available_commands: List[str] = []
     score: float = 0.0
