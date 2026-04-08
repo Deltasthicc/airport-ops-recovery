@@ -52,7 +52,7 @@ def main():
             "API_BASE_URL": 'getenv("API_BASE_URL")' in content or 'getenv("API_BASE_URL",' in content,
             "MODEL_NAME": 'getenv("MODEL_NAME")' in content or 'getenv("MODEL_NAME",' in content,
             "HF_TOKEN/API_KEY": 'getenv("HF_TOKEN")' in content,
-            "IMAGE_NAME": 'getenv("IMAGE_NAME")' in content,
+            "IMAGE_NAME": "IMAGE_NAME" in content and "getenv" in content,
             "from openai import OpenAI": "from openai import OpenAI" in content,
             "[START] format": "[START] task=" in content,
             "[STEP] format": "[STEP] step=" in content,

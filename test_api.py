@@ -1,9 +1,11 @@
 """
 test_api.py -- Test the running Docker container via HTTP.
 
-Run this AFTER: docker run -d -p 8000:8000 --name airport-test airport-recovery
+Usage:
+    docker run -d -p 8000:8000 --name airport-test airport-recovery
+    Start-Sleep -Seconds 5
+    python test_api.py
 """
-import json
 import sys
 try:
     import requests
@@ -13,38 +15,60 @@ except ImportError:
     import requests
 
 BASE = "http://localhost:8000"
+session = requests.Session()
+passed = 0
+failed = 0
 
-def post(path, data=None):
-    r = requests.post(f"{BASE}{path}", json=data or {}, timeout=10)
-    return r.json()
+def check(name, condition, detail=""):
+    global passed, failed
+    if condition:
+        passed += 1
+        print(f"  [OK] {name}")
+    else:
+        failed += 1
+        print(f"  [FAIL] {name} -- {detail}")
 
 print("=== API Test ===\n")
 
-# Health
-r = requests.get(f"{BASE}/health", timeout=5)
-print(f"1. Health: {r.json()}")
+# 1. Health
+try:
+    r = session.get(f"{BASE}/health", timeout=5)
+    check("GET /health", r.status_code == 200, f"HTTP {r.status_code}")
+except Exception as e:
+    check("GET /health", False, f"Connection refused. Is Docker running? Error: {e}")
+    print("\n  Run this first:")
+    print("    docker run -d -p 8000:8000 --name airport-test airport-recovery")
+    print("    Start-Sleep -Seconds 5")
+    sys.exit(1)
 
-# Reset easy task
-data = post("/reset", {"task": "single_delay"})
-obs = data.get("observation", data)
-print(f"2. Reset: task=single_delay, issues={obs.get('total_issues_count')}, time={obs.get('current_time')}")
+# 2. Reset each task
+for task in ["single_delay", "cascading_delays", "full_disruption",
+             "international_hub", "overnight_recovery", "information_blackout"]:
+    try:
+        r = session.post(f"{BASE}/reset", json={"task": task}, timeout=10)
+        data = r.json()
+        obs = data.get("observation", data)
+        issues = obs.get("total_issues_count", 0)
+        score = obs.get("score", -1)
+        check(f"POST /reset task={task}", r.status_code == 200 and issues > 0,
+              f"HTTP {r.status_code}, issues={issues}")
+        check(f"  score in (0,1)", 0 < score < 1, f"score={score}")
+    except Exception as e:
+        check(f"POST /reset task={task}", False, str(e))
 
-# Step: REQUEST_INFO
-data = post("/step", {"action": {"command": "REQUEST_INFO summary"}})
-obs = data.get("observation", data)
-print(f"3. REQUEST_INFO summary: reward={data.get('reward')}, done={data.get('done')}")
+# 3. Step (may or may not work via HTTP depending on openenv version)
+try:
+    session.post(f"{BASE}/reset", json={"task": "single_delay"}, timeout=10)
+    r = session.post(f"{BASE}/step",
+                     json={"action": {"command": "REQUEST_INFO summary"}},
+                     timeout=10)
+    if r.status_code == 200 and r.text:
+        check("POST /step", True)
+    else:
+        check("POST /step", False, f"HTTP {r.status_code} (may need WebSocket)")
+except Exception as e:
+    check("POST /step", False, f"{e} (may need WebSocket -- OK for submission)")
 
-# Reset again (HTTP is stateless, each call is fresh)
-post("/reset", {"task": "single_delay"})
-
-# Step: REASSIGN_GATE
-data = post("/step", {"action": {"command": "REASSIGN_GATE AA101 G1"}})
-print(f"4. REASSIGN_GATE AA101 G1: reward={data.get('reward')}")
-
-# Test each task resets
-for task in ["cascading_delays", "full_disruption", "international_hub", "overnight_recovery", "information_blackout"]:
-    data = post("/reset", {"task": task})
-    obs = data.get("observation", data)
-    print(f"5. Reset {task}: issues={obs.get('total_issues_count')}, weather={obs.get('weather_severity')}")
-
-print("\n=== All API tests passed! ===")
+print(f"\n=== {passed} passed, {failed} failed ===")
+if failed == 0:
+    print("All tests passed!")

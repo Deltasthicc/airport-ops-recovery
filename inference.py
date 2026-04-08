@@ -18,12 +18,10 @@ from client import AirportRecoveryEnv
 from models import AirportAction
 
 # --- Environment Variables (per submission guidelines) -------
-API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
-MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
-HF_TOKEN = os.getenv("HF_TOKEN")
-if HF_TOKEN is None:
-    raise ValueError("HF_TOKEN environment variable is required")
-IMAGE_NAME = os.getenv("IMAGE_NAME", "airport-recovery")
+API_BASE_URL = os.getenv("API_BASE_URL") or "https://router.huggingface.co/v1"
+MODEL_NAME = os.getenv("MODEL_NAME") or "Qwen/Qwen2.5-72B-Instruct"
+API_KEY = os.getenv("HF_TOKEN") or os.getenv("API_KEY")
+IMAGE_NAME = os.getenv("IMAGE_NAME")
 
 # --- Config --------------------------------------------------
 BENCHMARK = "airport_recovery"
@@ -192,7 +190,7 @@ async def run_task(client, task):
         log_end(success, steps, score, rewards)
 
 async def main():
-    client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
+    client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
     for task in TASKS:
         await run_task(client, task)
 
