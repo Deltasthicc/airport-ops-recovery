@@ -1,0 +1,6 @@
+name: airport_recovery
+version: "1.0.0"
+description: >
+  Airport Operations Recovery System -- agents handle gate assignment,
+  crew scheduling, and passenger rebooking during disruptions.
+  Three tasks with increasing difficulty.
