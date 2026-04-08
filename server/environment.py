@@ -118,7 +118,7 @@ class AirportRecoveryEnvironment(Environment):
             bonus=min((self._max_steps-self._state.step_count)*0.01,0.10) if done_all else 0
             tpen=len([f for f in self._flights.values() if f.get("tarmac_minutes",0)>=TARMAC_LIMIT and f["status"]=="delayed"])*(-0.03)
             self._score+=bonus+tpen
-            fs=min(max(self._score/self._max_score,0.001),0.999) if self._max_score>0 else 0.001
+            fs=min(max(self._score/self._max_score,0.01),0.99) if self._max_score>0 else 0.01
             if done_all: msg+=f"\n\n[OK] All resolved! Steps:{self._state.step_count} Bonus:+{bonus:.2f} Tarmac penalty:{tpen:.2f} Score:{fs:.2f} Cost:${self._comp:,.0f}"
             elif done_cmd: msg+=f"\n\nDONE. Score:{fs:.2f} Cost:${self._comp:,.0f}"
             else: msg+=f"\n\n[TIME] Out of steps. Score:{fs:.2f} Cost:${self._comp:,.0f}"
@@ -400,7 +400,7 @@ class AirportRecoveryEnvironment(Environment):
 
         if s=="summary":
             nr=self._nr(); tot=self._state.total_issues
-            fs=min(max(self._score/self._max_score,0.001),0.999) if self._max_score>0 else 0.001
+            fs=min(max(self._score/self._max_score,0.01),0.99) if self._max_score>0 else 0.01
             tviols=len([f for f in self._flights.values() if f.get("tarmac_minutes",0)>=TARMAC_LIMIT and f["status"]=="delayed"])
             L=[f"=== Summary at {self._fmt()} ===",
                f"  Progress: {nr}/{tot} ({fs:.0%}) | Steps: {self._state.step_count}/{self._max_steps}",
@@ -444,7 +444,7 @@ class AirportRecoveryEnvironment(Environment):
 
     def _obs(self, msg="", reward=None, force_done=False):
         done=self._done or force_done
-        fs=min(max(self._score/self._max_score,0.001),0.999) if self._max_score>0 else 0.001
+        fs=min(max(self._score/self._max_score,0.01),0.99) if self._max_score>0 else 0.01
         tviols=len([f for f in self._flights.values() if f.get("tarmac_minutes",0)>=TARMAC_LIMIT and f["status"]=="delayed"])
         return AirportObservation(
             done=done, reward=reward, current_time=self._fmt(),

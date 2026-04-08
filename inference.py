@@ -169,7 +169,7 @@ async def run_task(client, task):
     global _fails; _fails = 0
     env = await AirportRecoveryEnv.from_docker_image(IMAGE_NAME)
     hist, rewards, steps = [], [], 0
-    score, success = 0.001, False
+    score, success = 0.01, False
     log_start(task, BENCHMARK, MODEL_NAME)
     try:
         result = await env.reset(task=task)
@@ -184,7 +184,7 @@ async def run_task(client, task):
             log_step(s, cmd, r, result.done, None)
             hist.append(f"S{s}:{cmd}->{r:+.2f}")
             if result.done: break
-        score = min(max(getattr(obs, "score", 0.001), 0.001), 0.999)
+        score = min(max(getattr(obs, "score", 0.01), 0.01), 0.99)
         success = score >= 0.3
     finally:
         try: await env.close()
