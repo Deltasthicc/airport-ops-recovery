@@ -1,42 +1,50 @@
 """
-Airport Operations Recovery -- 6 Scenario Definitions
+Airport Operations Recovery -- 5 Scenario Definitions
 =====================================================
-Features: passenger priority, gate sizing, aircraft compat, weather,
-broadcast requirements, hidden connections (task 6), tarmac tracking.
+Features per scenario:
+  - Passenger priority: vip (2x), family (1.5x), unaccompanied_minor (2.5x), standard (1x)
+  - Gate size: wide (handles all), narrow (narrow-body only)
+  - Aircraft size: wide_body, narrow_body -- wide can't park at narrow gates
+  - Flight type: international (higher priority), domestic
+  - Weather severity: 1=clear to 5=extreme
+  - Gate turnaround: cooldown_steps (how many steps after freeing before reuse)
 """
 from typing import Any, Dict, List
 
 def _f(fid, orig, dest, sched, actual, gate, status, crew, ac, delay=0, pax=120,
-       ac_size="narrow_body", flight_type="domestic", tarmac_minutes=0):
+       ac_size="narrow_body", flight_type="domestic"):
     return dict(flight_id=fid, origin=orig, destination=dest,
                 scheduled_departure=sched, actual_departure=actual,
                 gate=gate, status=status, crew_id=crew, aircraft_id=ac,
                 delay_minutes=delay, passenger_count=pax,
-                aircraft_size=ac_size, flight_type=flight_type,
-                tarmac_minutes=tarmac_minutes)
+                aircraft_size=ac_size, flight_type=flight_type)
 
-def _g(gid, term, status, flight=None, size="standard"):
+def _g(gid, term, status, flight=None, size="standard", cooldown=0):
     return dict(gate_id=gid, terminal=term, status=status,
-                assigned_flight=flight, available_at=None, size=size, cooldown_steps=0)
+                assigned_flight=flight, available_at=None,
+                size=size, cooldown_steps=cooldown)
 
-def _p(pid, orig, conn=None, priority="standard", hidden=False):
+def _p(pid, orig, conn=None, priority="standard"):
     return dict(passenger_id=pid, original_flight=orig,
                 connection_flight=conn, status="needs_rebooking",
-                priority=priority, hidden=hidden)
+                priority=priority)
 
 def _c(cid, flight, hrs, status="available"):
     return dict(crew_id=cid, assigned_flight=flight,
                 duty_hours_remaining=hrs, status=status)
 
+PRIORITY_MULTIPLIER = {"standard":1.0, "vip":2.0, "family":1.5, "unaccompanied_minor":2.5}
 
 # =============================================================
 # TASK 1: Single Delay (Easy) -- 12 steps, 4 issues
 # =============================================================
 TASK_EASY = dict(
-    task_name="single_delay", disruption_type="mechanical_delay",
+    task_name="single_delay",
+    disruption_type="mechanical_delay",
     description=(
-        "Inbound AA101 (ORD->JFK) delayed 90min. Gate G3 needed by UA202. "
-        "3 passengers miss connections to ATL and MIA."),
+        "Inbound AA101 (ORD->JFK) delayed 90min by mechanical issue. "
+        "Gate G3 needed by on-time UA202. 3 passengers miss connections. "
+        "PAX-001/002 miss DL303->ATL. PAX-003 misses AA405->MIA."),
     max_steps=12, current_time="14:00", weather_severity=1, weather_desc="Clear skies",
     flights=[
         _f("AA101","ORD","JFK","14:30","16:00","G3","delayed","CRW-10","AC-701",delay=90,pax=145),
@@ -58,19 +66,21 @@ TASK_EASY = dict(
                 {"passenger_id":"PAX-001","valid_flights":["DL604"],"points":0.20},
                 {"passenger_id":"PAX-002","valid_flights":["DL604"],"points":0.20},
                 {"passenger_id":"PAX-003","valid_flights":["AA705"],"points":0.20}],
-            "crew_swaps":[],"cancellations_needed":[],"held_connections":[],"broadcasts_needed":[]},
-    max_score=1.0, dynamic_events=[],
+            "crew_swaps":[],"cancellations_needed":[],"held_connections":[]},
+    max_score=1.0,
+    dynamic_events=[],
 )
 
 # =============================================================
 # TASK 2: Cascading Weather Delays (Medium) -- 20 steps, 11 issues
 # =============================================================
 TASK_MEDIUM = dict(
-    task_name="cascading_delays", disruption_type="weather_delays",
+    task_name="cascading_delays",
+    disruption_type="weather_delays",
     description=(
-        "Thunderstorm delays 4 inbound flights. 3 gate conflicts, 2 crew at limits, "
-        "6 passengers miss connections."),
-    max_steps=20, current_time="16:00", weather_severity=3, weather_desc="Thunderstorms",
+        "Thunderstorm delays 4 inbound flights 60-120min. 3 gate conflicts. "
+        "2 crew at duty limits. 6 passengers miss connections."),
+    max_steps=20, current_time="16:00", weather_severity=3, weather_desc="Thunderstorms, moderate turbulence",
     flights=[
         _f("AA101","ORD","JFK","16:00","17:30","G1","delayed","CRW-10","AC-701",delay=90,pax=145),
         _f("UA202","SFO","JFK","16:15","17:15","G2","delayed","CRW-11","AC-702",delay=60,pax=132),
@@ -107,19 +117,22 @@ TASK_MEDIUM = dict(
             "crew_swaps":[
                 {"crew_to_replace":"CRW-20","flight":"AA505","valid_replacements":["CRW-30","CRW-31"],"points":0.14},
                 {"crew_to_replace":"CRW-22","flight":"DL707","valid_replacements":["CRW-30","CRW-31"],"points":0.14}],
-            "cancellations_needed":[],"held_connections":[],"broadcasts_needed":[]},
+            "cancellations_needed":[],"held_connections":[]},
     max_score=1.0,
-    dynamic_events=[{"step":8,"type":"weather_update","severity":2,"desc":"Storm weakening."}],
+    dynamic_events=[{"step":8,"type":"weather_update","severity":2,
+                     "desc":"Thunderstorm weakening. Delays stabilizing."}],
 )
 
 # =============================================================
 # TASK 3: Full Disruption (Hard) -- 30 steps, 17 issues
 # =============================================================
 TASK_HARD = dict(
-    task_name="full_disruption", disruption_type="runway_closure_plus_weather",
+    task_name="full_disruption",
+    disruption_type="runway_closure_plus_weather",
     description=(
         "CRITICAL: Runway 27L closed. 8 flights disrupted. 3 crew exceeded limits. "
-        "Hidden maintenance on AC-801 (SW808). T3 gates blocked."),
+        "Hidden maintenance on AC-801 (SW808). T3 gates blocked by security. "
+        "Cancel unrecoverable flight, resolve everything else."),
     max_steps=30, current_time="18:00", weather_severity=4, weather_desc="Severe weather, runway debris",
     flights=[
         _f("AA101","ORD","JFK","18:00","20:00","G1","delayed","CRW-10","AC-801",delay=120,pax=145),
@@ -170,92 +183,117 @@ TASK_HARD = dict(
                 {"crew_to_replace":"CRW-41","flight":"UA606","valid_replacements":["CRW-60","CRW-61","CRW-62"],"points":0.07},
                 {"crew_to_replace":"CRW-42","flight":"DL707","valid_replacements":["CRW-60","CRW-61","CRW-62"],"points":0.07}],
             "cancellations_needed":[{"flight_id":"SW808","reason":"maintenance_ac801","points":0.11}],
-            "held_connections":[],"broadcasts_needed":[]},
+            "held_connections":[]},
     max_score=1.0,
     dynamic_events=[{"step":10,"type":"crew_release","crew_id":"CRW-43","condition":"SW808_cancelled",
-                     "desc":"CRW-43 available as reserve (6h)."}],
+                     "desc":"SW808 crew CRW-43 now available as reserve (6h duty)."}],
 )
 
 # =============================================================
-# TASK 4: International Hub (Expert) -- 25 steps, 10 issues
-# Wide-body gates, VIP pax, HOLD_CONNECTION, weather escalation
+# TASK 4: International Hub Crisis (Expert) -- 25 steps, 14 issues
+# VIP passengers, wide-body aircraft, gate compatibility, weather
 # =============================================================
 TASK_EXPERT = dict(
-    task_name="international_hub", disruption_type="international_hub_disruption",
+    task_name="international_hub",
+    disruption_type="international_hub_disruption",
     description=(
-        "Two wide-body transatlantic flights delayed. Gate conflicts with domestics. "
-        "VIP and unaccompanied minor need priority. Wide-body aircraft ONLY fit at [wide] gates. "
-        "Use HOLD_CONNECTION to protect minor's connection. Weather deteriorating."),
+        "International hub crisis. Two wide-body transatlantic flights delayed, "
+        "creating gate conflicts with domestic departures. VIP passengers and an "
+        "unaccompanied minor need priority rebooking. One crew exceeded limits. "
+        "Wide-body aircraft (AC-901, AC-902) ONLY fit at wide gates (G20-G24). "
+        "Weather deteriorating -- act fast before severity reaches 5."),
     max_steps=25, current_time="15:00", weather_severity=3,
-    weather_desc="Deteriorating -- severe by 16:30",
+    weather_desc="Deteriorating -- expected to reach severe by 16:30",
     flights=[
+        # Delayed international wide-body inbound
         _f("BA301","LHR","JFK","15:00","17:00","G20","delayed","CRW-70","AC-901",delay=120,pax=280,ac_size="wide_body",flight_type="international"),
         _f("LH502","FRA","JFK","15:30","17:30","G21","delayed","CRW-71","AC-902",delay=120,pax=310,ac_size="wide_body",flight_type="international"),
+        # Outbound flights blocked
         _f("AA601","JFK","LAX","16:00","16:00","G20","scheduled","CRW-72","AC-811",pax=155),
         _f("DL702","JFK","ATL","16:30","16:30","G21","scheduled","CRW-73","AC-812",pax=120),
+        # Domestic on-time
         _f("UA803","JFK","ORD","17:00","17:00","G5","scheduled","CRW-74","AC-813",pax=140),
         _f("SW904","JFK","DEN","17:30","17:30","G6","scheduled","CRW-75","AC-814",pax=95),
+        # Rebooking options
         _f("AA610","JFK","LAX","20:00","20:00","G22","scheduled","CRW-76","AC-815",pax=60),
         _f("DL711","JFK","ATL","20:30","20:30","G23","scheduled","CRW-77","AC-816",pax=45),
         _f("UA812","JFK","ORD","21:00","21:00","G7","scheduled","CRW-78","AC-817",pax=50),
     ],
-    gates=[_g("G5","T1","occupied",flight="UA803"),_g("G6","T1","occupied",flight="SW904"),
-           _g("G7","T1","available"),_g("G8","T1","available"),
-           _g("G20","T3","occupied",flight="BA301",size="wide"),
-           _g("G21","T3","occupied",flight="LH502",size="wide"),
-           _g("G22","T3","occupied",flight="AA610",size="wide"),
-           _g("G23","T3","occupied",flight="DL711",size="wide"),
-           _g("G24","T3","available",size="wide")],
-    passengers=[_p("PAX-301","BA301",conn="AA601",priority="vip"),
-                _p("PAX-302","BA301",conn="AA601"),
-                _p("PAX-303","BA301",conn="UA803",priority="unaccompanied_minor"),
-                _p("PAX-304","LH502",conn="DL702",priority="vip"),
-                _p("PAX-305","LH502",conn="DL702",priority="family"),
-                _p("PAX-306","LH502",conn="UA803")],
-    crew=[_c("CRW-72","AA601",0.4,"at_limit"),_c("CRW-80","RESERVE",8.0),_c("CRW-81","RESERVE",7.0)],
+    gates=[
+        _g("G5","T1","occupied",flight="UA803"),_g("G6","T1","occupied",flight="SW904"),
+        _g("G7","T1","available"),_g("G8","T1","available"),
+        # Wide-body capable gates (T3-International)
+        _g("G20","T3","occupied",flight="BA301",size="wide"),
+        _g("G21","T3","occupied",flight="LH502",size="wide"),
+        _g("G22","T3","occupied",flight="AA610",size="wide"),
+        _g("G23","T3","occupied",flight="DL711",size="wide"),
+        _g("G24","T3","available",size="wide"),
+    ],
+    passengers=[
+        # VIP passengers (higher rebooking priority)
+        _p("PAX-301","BA301",conn="AA601",priority="vip"),
+        _p("PAX-302","BA301",conn="AA601",priority="standard"),
+        _p("PAX-303","BA301",conn="UA803",priority="unaccompanied_minor"),
+        _p("PAX-304","LH502",conn="DL702",priority="vip"),
+        _p("PAX-305","LH502",conn="DL702",priority="family"),
+        _p("PAX-306","LH502",conn="UA803",priority="standard"),
+    ],
+    crew=[_c("CRW-72","AA601",0.4,"at_limit"),
+          _c("CRW-80","RESERVE",8.0),_c("CRW-81","RESERVE",7.0)],
     issues={"gate_conflicts":[
                 {"flight_to_move":"AA601","blocking_flight":"BA301","points":0.10},
                 {"flight_to_move":"DL702","blocking_flight":"LH502","points":0.10}],
             "passenger_rebookings":[
-                {"passenger_id":"PAX-301","valid_flights":["AA610"],"points":0.10},
+                {"passenger_id":"PAX-301","valid_flights":["AA610"],"points":0.10},  # VIP
                 {"passenger_id":"PAX-302","valid_flights":["AA610"],"points":0.05},
-                {"passenger_id":"PAX-303","valid_flights":["UA812"],"points":0.12},
-                {"passenger_id":"PAX-304","valid_flights":["DL711"],"points":0.10},
-                {"passenger_id":"PAX-305","valid_flights":["DL711"],"points":0.08},
+                {"passenger_id":"PAX-303","valid_flights":["UA812"],"points":0.12},  # Unaccompanied minor
+                {"passenger_id":"PAX-304","valid_flights":["DL711"],"points":0.10},  # VIP
+                {"passenger_id":"PAX-305","valid_flights":["DL711"],"points":0.08},  # Family
                 {"passenger_id":"PAX-306","valid_flights":["UA812"],"points":0.05}],
-            "crew_swaps":[{"crew_to_replace":"CRW-72","flight":"AA601","valid_replacements":["CRW-80","CRW-81"],"points":0.15}],
+            "crew_swaps":[
+                {"crew_to_replace":"CRW-72","flight":"AA601","valid_replacements":["CRW-80","CRW-81"],"points":0.15}],
             "cancellations_needed":[],"held_connections":[
                 {"departing_flight":"UA803","arriving_flight":"BA301","connecting_pax":["PAX-303"],
-                 "hold_minutes":30,"points":0.15}],
-            "broadcasts_needed":[]},
+                 "hold_minutes":30,"points":0.15}]},
     max_score=1.0,
-    dynamic_events=[{"step":8,"type":"weather_escalation","severity":4,"desc":"Weather worsening to severe."},
-                    {"step":15,"type":"weather_escalation","severity":5,"desc":"EXTREME WEATHER."}],
+    dynamic_events=[{"step":8,"type":"weather_escalation","severity":4,
+                     "desc":"Weather worsening to severe. Additional delays possible."},
+                    {"step":15,"type":"weather_escalation","severity":5,
+                     "desc":"EXTREME WEATHER. All remaining operations critical."}],
 )
 
 # =============================================================
 # TASK 5: Overnight Recovery (Nightmare) -- 35 steps, 20 issues
+# Minimal resources, multiple failures, triage required
 # =============================================================
 TASK_NIGHTMARE = dict(
-    task_name="overnight_recovery", disruption_type="cascading_system_failure",
+    task_name="overnight_recovery",
+    disruption_type="cascading_system_failure",
     description=(
-        "NIGHTMARE: System-wide cascading failure. 6 flights delayed, 2 aircraft grounded "
-        "(AC-950/AC-951 maintenance). 4 crew at limits, only 2 reserves. 12 passengers "
-        "including VIPs/families. Only 3 available gates. Triage required."),
-    max_steps=35, current_time="21:00", weather_severity=2, weather_desc="Light rain",
+        "NIGHTMARE SCENARIO: System-wide cascading failure during evening operations. "
+        "6 flights delayed, 2 aircraft grounded (maintenance on AC-950, AC-951). "
+        "4 crew at duty limits but only 2 reserves available. 12 passengers stranded "
+        "including VIPs and families. Only 3 available gates. "
+        "You CANNOT save everyone -- triage required. Prioritize high-value passengers."),
+    max_steps=35, current_time="21:00", weather_severity=2,
+    weather_desc="Light rain, visibility reduced",
     flights=[
+        # Delayed inbound
         _f("AA401","ORD","JFK","21:00","23:00","G1","delayed","CRW-90","AC-950",delay=120,pax=160),
         _f("UA502","SFO","JFK","21:15","23:15","G2","delayed","CRW-91","AC-951",delay=120,pax=145),
         _f("DL603","ATL","JFK","21:30","23:00","G3","delayed","CRW-92","AC-903",delay=90,pax=130),
         _f("SW704","DEN","JFK","21:45","23:15","G4","delayed","CRW-93","AC-904",delay=90,pax=95),
         _f("BA805","LHR","JFK","22:00","00:00","G20","delayed","CRW-94","AC-960",delay=120,pax=290,ac_size="wide_body",flight_type="international"),
         _f("LH906","FRA","JFK","22:15","00:15","G21","delayed","CRW-95","AC-961",delay=120,pax=275,ac_size="wide_body",flight_type="international"),
+        # Outbound -- blocked
         _f("AA511","JFK","LAX","22:00","22:00","G1","scheduled","CRW-A0","AC-911",pax=150),
         _f("UA612","JFK","SEA","22:15","22:15","G2","scheduled","CRW-A1","AC-912",pax=105),
         _f("DL713","JFK","MIA","22:30","22:30","G3","scheduled","CRW-A2","AC-913",pax=125),
         _f("SW814","JFK","DEN","22:45","22:45","G4","scheduled","CRW-A3","AC-914",pax=88),
+        # Grounded -- must cancel (AC-950 and AC-951 maintenance)
         _f("AA915","JFK","BOS","00:30","00:30","G5","scheduled","CRW-A4","AC-950",pax=75),
         _f("UA016","JFK","ORD","01:00","01:00","G6","scheduled","CRW-A5","AC-951",pax=80),
+        # Rebooking targets
         _f("AA520","JFK","LAX","02:00","02:00","G7","scheduled","CRW-A6","AC-921",pax=40),
         _f("UA621","JFK","SEA","02:30","02:30","G8","scheduled","CRW-A7","AC-922",pax=30),
         _f("DL722","JFK","MIA","02:00","02:00","G9","scheduled","CRW-A8","AC-923",pax=35),
@@ -263,26 +301,30 @@ TASK_NIGHTMARE = dict(
         _f("UA024","JFK","ORD","02:30","02:30","G11","scheduled","CRW-B0","AC-925",pax=30),
         _f("SW925","JFK","DEN","03:00","03:00","G12","scheduled","CRW-B1","AC-926",pax=20),
     ],
-    gates=[_g("G1","T1","occupied",flight="AA401"),_g("G2","T1","occupied",flight="UA502"),
-           _g("G3","T1","occupied",flight="DL603"),_g("G4","T1","occupied",flight="SW704"),
-           _g("G5","T1","occupied",flight="AA915"),_g("G6","T1","occupied",flight="UA016"),
-           _g("G7","T1","available"),_g("G8","T1","available"),
-           _g("G9","T2","occupied",flight="DL722"),_g("G10","T2","occupied",flight="AA823"),
-           _g("G11","T2","occupied",flight="UA024"),_g("G12","T2","occupied",flight="SW925"),
-           _g("G13","T2","available"),
-           _g("G20","T3","occupied",flight="BA805",size="wide"),
-           _g("G21","T3","occupied",flight="LH906",size="wide")],
+    gates=[
+        _g("G1","T1","occupied",flight="AA401"),_g("G2","T1","occupied",flight="UA502"),
+        _g("G3","T1","occupied",flight="DL603"),_g("G4","T1","occupied",flight="SW704"),
+        _g("G5","T1","occupied",flight="AA915"),_g("G6","T1","occupied",flight="UA016"),
+        _g("G7","T1","available"),_g("G8","T1","available"),
+        _g("G9","T2","occupied",flight="DL722"),_g("G10","T2","occupied",flight="AA823"),
+        _g("G11","T2","occupied",flight="UA024"),_g("G12","T2","occupied",flight="SW925"),
+        _g("G13","T2","available"),
+        _g("G20","T3","occupied",flight="BA805",size="wide"),
+        _g("G21","T3","occupied",flight="LH906",size="wide"),
+    ],
     passengers=[
         _p("PAX-401","AA401",conn="AA511",priority="vip"),
         _p("PAX-402","AA401",conn="AA511",priority="family"),
-        _p("PAX-403","UA502",conn="UA612"),
+        _p("PAX-403","UA502",conn="UA612",priority="standard"),
         _p("PAX-404","UA502",conn="UA612",priority="unaccompanied_minor"),
-        _p("PAX-405","DL603",conn="DL713"),
+        _p("PAX-405","DL603",conn="DL713",priority="standard"),
         _p("PAX-406","DL603",conn="DL713",priority="vip"),
         _p("PAX-407","SW704",conn="SW814",priority="family"),
-        _p("PAX-408","SW704",conn="SW814"),
-        _p("PAX-409","AA915"),_p("PAX-410","AA915",priority="family"),
-        _p("PAX-411","UA016"),_p("PAX-412","UA016",priority="vip"),
+        _p("PAX-408","SW704",conn="SW814",priority="standard"),
+        _p("PAX-409","AA915",priority="standard"),  # Flight to cancel
+        _p("PAX-410","AA915",priority="family"),
+        _p("PAX-411","UA016",priority="standard"),
+        _p("PAX-412","UA016",priority="vip"),
     ],
     crew=[_c("CRW-A0","AA511",0.3,"at_limit"),_c("CRW-A1","UA612",0.2,"exceeded"),
           _c("CRW-A2","DL713",0.4,"at_limit"),_c("CRW-A3","SW814",0.1,"exceeded"),
@@ -293,47 +335,46 @@ TASK_NIGHTMARE = dict(
                 {"flight_to_move":"DL713","blocking_flight":"DL603","points":0.04},
                 {"flight_to_move":"SW814","blocking_flight":"SW704","points":0.04}],
             "passenger_rebookings":[
-                {"passenger_id":"PAX-401","valid_flights":["AA520"],"points":0.06},
-                {"passenger_id":"PAX-402","valid_flights":["AA520"],"points":0.05},
+                {"passenger_id":"PAX-401","valid_flights":["AA520"],"points":0.06},  # VIP
+                {"passenger_id":"PAX-402","valid_flights":["AA520"],"points":0.05},  # Family
                 {"passenger_id":"PAX-403","valid_flights":["UA621"],"points":0.04},
-                {"passenger_id":"PAX-404","valid_flights":["UA621"],"points":0.07},
+                {"passenger_id":"PAX-404","valid_flights":["UA621"],"points":0.07},  # Minor
                 {"passenger_id":"PAX-405","valid_flights":["DL722"],"points":0.04},
-                {"passenger_id":"PAX-406","valid_flights":["DL722"],"points":0.06},
-                {"passenger_id":"PAX-407","valid_flights":["SW925"],"points":0.05},
+                {"passenger_id":"PAX-406","valid_flights":["DL722"],"points":0.06},  # VIP
+                {"passenger_id":"PAX-407","valid_flights":["SW925"],"points":0.05},  # Family
                 {"passenger_id":"PAX-408","valid_flights":["SW925"],"points":0.03},
                 {"passenger_id":"PAX-409","valid_flights":["AA823"],"points":0.03},
-                {"passenger_id":"PAX-410","valid_flights":["AA823"],"points":0.05},
+                {"passenger_id":"PAX-410","valid_flights":["AA823"],"points":0.05},  # Family
                 {"passenger_id":"PAX-411","valid_flights":["UA024"],"points":0.04},
-                {"passenger_id":"PAX-412","valid_flights":["UA024"],"points":0.06}],
+                {"passenger_id":"PAX-412","valid_flights":["UA024"],"points":0.06}], # VIP
             "crew_swaps":[
                 {"crew_to_replace":"CRW-A0","flight":"AA511","valid_replacements":["CRW-C0","CRW-C1"],"points":0.06},
                 {"crew_to_replace":"CRW-A1","flight":"UA612","valid_replacements":["CRW-C0","CRW-C1"],"points":0.06}],
             "cancellations_needed":[
                 {"flight_id":"AA915","reason":"maintenance_ac950","points":0.07},
                 {"flight_id":"UA016","reason":"maintenance_ac951","points":0.07}],
-            "held_connections":[],"broadcasts_needed":[]},
+            "held_connections":[]},
     max_score=1.0,
-    dynamic_events=[{"step":12,"type":"weather_update","severity":1,"desc":"Rain clearing."},
-                    {"step":20,"type":"crew_fatigue","desc":"Ground crew shift change."}],
+    dynamic_events=[{"step":12,"type":"weather_update","severity":1,
+                     "desc":"Rain clearing. Visibility improving."},
+                    {"step":20,"type":"crew_fatigue","desc":"Ground crew shift change. Turnaround times +5 min."}],
 )
 
-# =============================================================
-# TASK 6: Information Blackout (Expert+) -- 28 steps, 13 issues
-# Hidden connections, BROADCAST required, ESCALATE available,
-# tarmac timer active. Agent must DISCOVER information.
-# =============================================================
+# ================================================================
+# TASK 6: Information Blackout (Expert+) -- 28 steps, 10 issues
+# Comms failure, tarmac pressure, must discover info before acting
+# ================================================================
 TASK_BLACKOUT = dict(
     task_name="information_blackout", disruption_type="comms_system_failure",
     description=(
         "COMMS FAILURE: Airport communication system partially down. "
-        "Passenger connection data is HIDDEN -- use REQUEST_INFO passengers to discover. "
-        "Two flights approaching FAA 3-hour tarmac limit (tarmac_minutes shown in flight info). "
-        "You MUST broadcast delay info for flights delayed >60min. "
-        "Use ESCALATE_TO_SUPERVISOR if stuck -- costs a step but gives a hint."),
+        "Two flights approaching FAA 3-hour tarmac limit. "
+        "Use BROADCAST_DELAY for flights delayed >60min. "
+        "Use ESCALATE_TO_SUPERVISOR if stuck."),
     max_steps=28, current_time="17:00", weather_severity=2, weather_desc="Overcast, gusty",
     flights=[
-        _f("AA301","ORD","JFK","17:00","19:30","G1","delayed","CRW-50","AC-701",delay=150,pax=155,tarmac_minutes=150),
-        _f("UA402","SFO","JFK","17:15","19:45","G2","delayed","CRW-51","AC-702",delay=150,pax=140,tarmac_minutes=160),
+        _f("AA301","ORD","JFK","17:00","19:30","G1","delayed","CRW-50","AC-701",delay=150,pax=155),
+        _f("UA402","SFO","JFK","17:15","19:45","G2","delayed","CRW-51","AC-702",delay=150,pax=140),
         _f("DL503","ATL","JFK","17:30","19:00","G3","delayed","CRW-52","AC-703",delay=90,pax=120),
         _f("AA604","JFK","LAX","18:00","18:00","G1","scheduled","CRW-53","AC-711",pax=135),
         _f("UA705","JFK","SEA","18:15","18:15","G2","scheduled","CRW-54","AC-712",pax=100),
@@ -347,14 +388,13 @@ TASK_BLACKOUT = dict(
            _g("G5","T1","available"),_g("G6","T2","available"),
            _g("G7","T2","occupied",flight="AA910"),_g("G8","T2","occupied",flight="UA011"),
            _g("G9","T2","occupied",flight="DL112")],
-    # Passengers with hidden=True -- connections not shown until REQUEST_INFO
     passengers=[
-        _p("PAX-501","AA301",conn="AA604",priority="vip",hidden=True),
-        _p("PAX-502","AA301",conn="AA604",hidden=True),
-        _p("PAX-503","UA402",conn="UA705",priority="family",hidden=True),
-        _p("PAX-504","UA402",conn="UA705",hidden=True),
-        _p("PAX-505","DL503",conn="DL806",hidden=True),
-        _p("PAX-506","DL503",conn="DL806",priority="unaccompanied_minor",hidden=True),
+        _p("PAX-501","AA301",conn="AA604",priority="vip"),
+        _p("PAX-502","AA301",conn="AA604"),
+        _p("PAX-503","UA402",conn="UA705",priority="family"),
+        _p("PAX-504","UA402",conn="UA705"),
+        _p("PAX-505","DL503",conn="DL806"),
+        _p("PAX-506","DL503",conn="DL806",priority="unaccompanied_minor"),
     ],
     crew=[_c("CRW-53","AA604",0.5,"at_limit"),_c("CRW-D0","RESERVE",8.0)],
     issues={"gate_conflicts":[
@@ -362,21 +402,17 @@ TASK_BLACKOUT = dict(
                 {"flight_to_move":"UA705","blocking_flight":"UA402","points":0.08},
                 {"flight_to_move":"DL806","blocking_flight":"DL503","points":0.08}],
             "passenger_rebookings":[
-                {"passenger_id":"PAX-501","valid_flights":["AA910"],"points":0.08},
-                {"passenger_id":"PAX-502","valid_flights":["AA910"],"points":0.05},
-                {"passenger_id":"PAX-503","valid_flights":["UA011"],"points":0.07},
-                {"passenger_id":"PAX-504","valid_flights":["UA011"],"points":0.05},
-                {"passenger_id":"PAX-505","valid_flights":["DL112"],"points":0.05},
-                {"passenger_id":"PAX-506","valid_flights":["DL112"],"points":0.08}],
-            "crew_swaps":[{"crew_to_replace":"CRW-53","flight":"AA604","valid_replacements":["CRW-D0"],"points":0.10}],
-            "cancellations_needed":[],"held_connections":[],
-            "broadcasts_needed":[
-                {"flight_id":"AA301","points":0.10},
-                {"flight_id":"UA402","points":0.10},
-                {"flight_id":"DL503","points":0.08}]},
+                {"passenger_id":"PAX-501","valid_flights":["AA910"],"points":0.12},
+                {"passenger_id":"PAX-502","valid_flights":["AA910"],"points":0.10},
+                {"passenger_id":"PAX-503","valid_flights":["UA011"],"points":0.10},
+                {"passenger_id":"PAX-504","valid_flights":["UA011"],"points":0.10},
+                {"passenger_id":"PAX-505","valid_flights":["DL112"],"points":0.10},
+                {"passenger_id":"PAX-506","valid_flights":["DL112"],"points":0.10}],
+            "crew_swaps":[{"crew_to_replace":"CRW-53","flight":"AA604","valid_replacements":["CRW-D0"],"points":0.14}],
+            "cancellations_needed":[],"held_connections":[]},
     max_score=1.0,
-    dynamic_events=[{"step":5,"type":"tarmac_warning","desc":"AA301 approaching 3h tarmac limit! Must act soon."},
-                    {"step":10,"type":"comms_partial","desc":"Partial comms restored. REQUEST_INFO now shows more detail."}],
+    dynamic_events=[{"step":5,"type":"tarmac_warning","desc":"AA301 approaching 3h tarmac limit!"},
+                    {"step":10,"type":"comms_partial","desc":"Partial comms restored."}],
 )
 
 SCENARIOS = {
